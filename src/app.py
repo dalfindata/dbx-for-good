@@ -197,7 +197,7 @@ with tab_map:
             )
             fig.update_layout(margin=dict(l=0, r=0, t=0, b=0),
                               coloraxis_colorbar=dict(title="gap"))
-            st.plotly_chart(fig, width='stretch')
+            st.plotly_chart(fig, use_container_width=True)
             st.caption("Bubble size = population · colour = care-gap score (darker = worse). "
                        "Centroids approximated from facility & post-office coordinates.")
         else:
@@ -213,7 +213,7 @@ with tab_map:
         show = show.drop(columns=["supply_confidence"]).rename(
             columns={"district_name": "District", "state_ut": "State",
                      GAPCOL: "Gap", "fac_per_100k": "Fac/100k", "pop": "Population"})
-        st.dataframe(show, hide_index=True, width='stretch', height=520)
+        st.dataframe(show, hide_index=True, use_container_width=True, height=520)
 
     # population-unresolved but high-need (honest separate bucket)
     unr = gaps[(~gaps["pop_resolved"]) & (gaps["need_z"] > 0.3)].sort_values("need_z", ascending=False)
@@ -226,7 +226,7 @@ with tab_map:
             u["need_z"] = u["need_z"].map(lambda x: f"{x:+.2f}")
             st.dataframe(u.rename(columns={"district_name": "District", "state_ut": "State",
                                            "need_z": "Need (z)", "n_fac": "Facilities"}),
-                         hide_index=True, width='stretch')
+                         hide_index=True, use_container_width=True)
 
 
 # ===== TAB 2: DISTRICT DETAIL ==============================================
@@ -268,7 +268,7 @@ with tab_detail:
           "Value": f"{v:.1f}%",
           "Concern": "low coverage" if bad == "low" else "high burden"} for _, l, v, bad, fl in drivers[:10]]
     )
-    st.dataframe(dd, hide_index=True, width='stretch')
+    st.dataframe(dd, hide_index=True, use_container_width=True)
 
     # ----- cited facility evidence -----
     st.markdown("##### Facilities in this district — underlying evidence (cited)")
@@ -344,7 +344,7 @@ with tab_short:
             .rename(columns={"district_name": "District", "state_ut": "State", "status": "Status",
                              "priority_rank": "Rank", "gap": "Gap", "pop": "Population",
                              "reviewed": "Reviewed", "note": "Note", "updated_at": "Updated"}),
-            hide_index=True, width='stretch')
+            hide_index=True, use_container_width=True)
         st.download_button("⬇️ Export shortlist (CSV)", merged.to_csv(index=False),
                            "medical_desert_shortlist.csv", "text/csv")
         st.caption(f"Persistence backend: **{persistence.BACKEND}** "
@@ -381,7 +381,7 @@ with tab_ready:
         cov = pd.DataFrame(rd["coverage"]).rename(
             columns={"field": "Field", "role": "Planner role", "pct": "Coverage %"})
         st.dataframe(
-            cov[["Field", "Planner role", "Coverage %"]], hide_index=True, width='stretch',
+            cov[["Field", "Planner role", "Coverage %"]], hide_index=True, use_container_width=True,
             column_config={"Coverage %": st.column_config.ProgressColumn(
                 "Coverage %", min_value=0, max_value=100, format="%.1f%%")},
         )
@@ -397,7 +397,7 @@ with tab_ready:
             ex = pd.DataFrame(cb["examples"]).rename(columns={
                 "unique_id": "Record ID", "name": "Facility",
                 "leaked_value": "Value leaked into operatorTypeId"})
-            st.dataframe(ex, hide_index=True, width='stretch')
+            st.dataframe(ex, hide_index=True, use_container_width=True)
         st.caption("Fix: strict quoted/multiline-aware parsing + a schema assertion that fails the "
                    "pipeline whenever operatorTypeId is not one of the three valid values.")
 
