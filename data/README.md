@@ -5,10 +5,10 @@ These CSVs are too large for Git (~91MB total). The app loads them from Databric
 ## Local Development Setup
 
 Copy from the shared download location:
-`ash
-cp C:\Code\hackathons\dais-hackathon-2026\data\facilities_complete.csv .
-cp C:\Code\hackathons\dais-hackathon-2026\data\nfhs_health.csv .
-cp C:\Code\hackathons\dais-hackathon-2026\data\pincode_directory.csv .
-`
+```bash
+cp /path/to/shared/data/facilities_complete.csv .
+cp /path/to/shared/data/nfhs_health.csv .
+cp /path/to/shared/data/pincode_directory.csv .
+```
 
-Or re-download using the script in ../TEAMMATE-SETUP.md.
+Or re-download using the script in the project root's `requirements.txt` setup instructions.
