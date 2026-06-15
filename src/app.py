@@ -73,11 +73,12 @@ def _load_citations_from_catalog():
         catalog = "databricks_virtue_foundation_dataset_dais_2026"
         schema = "virtue_foundation_dataset"
         resp = w.statement_execution.execute_statement(
-            statement=f"""SELECT unique_id, name, facilityTypeId, operatorTypeId,
+            statement=f"""SELECT unique_id, name, facilityTypeId,
                           address_city, address_stateOrRegion,
-                          specialties, description, capability, procedure, equipment,
-                          yearEstablished, capacity, numberDoctors,
-                          officialWebsite, latitude, longitude
+                          LEFT(specialties, 300) as specialties,
+                          LEFT(description, 300) as description,
+                          LEFT(capability, 300) as capability,
+                          latitude, longitude
                    FROM {catalog}.{schema}.facilities""",
             warehouse_id=warehouse_id,
             wait_timeout="50s"
@@ -87,18 +88,17 @@ def _load_citations_from_catalog():
             df = pd.DataFrame(resp.result.data_array, columns=cols)
             # Map to expected schema
             df["state_ut"] = df["address_stateOrRegion"]
-            df["district_name"] = df["address_city"]  # best proxy without geocoding
+            df["district_name"] = df["address_city"]
             df["lat"] = pd.to_numeric(df["latitude"], errors="coerce")
             df["lon"] = pd.to_numeric(df["longitude"], errors="coerce")
-            df["source_urls"] = df["officialWebsite"]
             # Add maternal flag
             blob = (df[["specialties", "capability", "description"]].fillna("").astype(str)
                     .agg(" ".join, axis=1).str.lower())
             df["is_obgyn"] = blob.str.contains(r"obstet|ob/gyn|gyn|maternit|delivery|natal", regex=True)
             df["is_hospital"] = df["facilityTypeId"].fillna("").str.lower().eq("hospital")
             return df
-    except Exception as e:
-        st.warning(f"Could not load facility citations: {e}")
+    except Exception:
+        pass  # Fall through to empty DataFrame
     # Return empty DF with required columns
     return pd.DataFrame(columns=["district_name", "state_ut", "name", "facilityTypeId",
                                   "description", "capability", "specialties", "is_obgyn"])
@@ -187,16 +187,29 @@ with tab_map:
         m = f.dropna(subset=["lat", "lon"]).copy()
         if len(m):
             m["People"] = m["pop"].fillna(0)
-            fig = px.scatter_map(
+            fig = px.scatter_geo(
                 m, lat="lat", lon="lon", color=GAPCOL, size=np.sqrt(m["People"].clip(lower=1)),
-                color_continuous_scale="OrRd", size_max=22, zoom=3.3,
+                color_continuous_scale="OrRd", size_max=22,
                 hover_name="district_name",
                 hover_data={"state_ut": True, GAPCOL: ":.2f", "fac_per_100k": ":.2f",
                             "pop": ":,.0f", "lat": False, "lon": False},
-                map_style="carto-positron", height=560,
+                height=580,
             )
-            fig.update_layout(margin=dict(l=0, r=0, t=0, b=0),
-                              coloraxis_colorbar=dict(title="gap"))
+            fig.update_geos(
+                visible=True, resolution=50,
+                showcountries=True, countrycolor="darkgray",
+                showcoastlines=True, coastlinecolor="gray",
+                showland=True, landcolor="#f8f9fa",
+                showocean=True, oceancolor="#e3f2fd",
+                showlakes=True, lakecolor="#e3f2fd",
+                lonaxis_range=[67, 98], lataxis_range=[6, 38],
+                projection_type="mercator",
+            )
+            fig.update_layout(
+                margin=dict(l=0, r=0, t=0, b=0),
+                coloraxis_colorbar=dict(title="Gap Score"),
+                geo=dict(bgcolor="rgba(0,0,0,0)"),
+            )
             st.plotly_chart(fig, use_container_width=True)
             st.caption("Bubble size = population · colour = care-gap score (darker = worse). "
                        "Centroids approximated from facility & post-office coordinates.")

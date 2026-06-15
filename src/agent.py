@@ -16,49 +16,45 @@ from typing import Optional
 
 # ─── LLM Client ──────────────────────────────────────────────────────
 
-def get_llm_client():
-    """Get LLM client - tries Databricks Foundation Models first, then OpenAI fallback."""
+def call_llm(system_prompt: str, user_prompt: str, max_tokens: int = 1500) -> str:
+    """Call LLM via Databricks Foundation Model endpoint.
+    
+    Uses WorkspaceClient's built-in auth (works in Databricks Apps with managed identity).
+    Falls back to OpenAI or mock mode for local dev.
+    """
+    # Method 1: Databricks SDK with raw HTTP (handles managed identity auth)
     try:
         from databricks.sdk import WorkspaceClient
+        import requests as _requests
         w = WorkspaceClient()
-        return ("databricks", w)
-    except Exception:
+        endpoint = os.getenv("DATABRICKS_LLM_ENDPOINT", "databricks-meta-llama-3-3-70b-instruct")
+        url = f"{w.config.host.rstrip('/')}/serving-endpoints/{endpoint}/invocations"
+        headers = w.config.authenticate()
+        headers["Content-Type"] = "application/json"
+        payload = {
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "max_tokens": max_tokens,
+            "temperature": 0.3
+        }
+        resp = _requests.post(url, json=payload, headers=headers, timeout=60)
+        resp.raise_for_status()
+        result = resp.json()
+        return result["choices"][0]["message"]["content"]
+    except ImportError:
         pass
+    except Exception as e:
+        return f"⚠️ LLM call failed ({e}). Showing data-only analysis below."
 
-    # Fallback: OpenAI-compatible endpoint (for local dev)
-    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("DATABRICKS_TOKEN")
+    # Method 2: OpenAI-compatible endpoint (for local dev)
+    api_key = os.getenv("OPENAI_API_KEY")
     if api_key:
-        return ("openai", api_key)
-
-    return ("mock", None)
-
-
-def call_llm(system_prompt: str, user_prompt: str, max_tokens: int = 1500) -> str:
-    """Call LLM via Databricks serving or fallback."""
-    client_type, client = get_llm_client()
-
-    if client_type == "databricks":
-        try:
-            # Use Databricks Foundation Model serving endpoint
-            endpoint = os.getenv("DATABRICKS_LLM_ENDPOINT", "databricks-meta-llama-3-3-70b-instruct")
-            response = client.serving_endpoints.query(
-                name=endpoint,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                max_tokens=max_tokens,
-                temperature=0.3
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            return f"⚠️ LLM call failed ({e}). Showing data-only analysis below."
-
-    elif client_type == "openai":
         try:
             import openai
             oai_client = openai.OpenAI(
-                api_key=client,
+                api_key=api_key,
                 base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
             )
             response = oai_client.chat.completions.create(
@@ -74,9 +70,8 @@ def call_llm(system_prompt: str, user_prompt: str, max_tokens: int = 1500) -> st
         except Exception as e:
             return f"⚠️ LLM call failed ({e}). Showing data-only analysis below."
 
-    else:
-        # Mock mode for local testing without API keys
-        return _mock_analysis(user_prompt)
+    # Mock mode
+    return _mock_analysis(user_prompt)
 
 
 def _mock_analysis(prompt: str) -> str:
