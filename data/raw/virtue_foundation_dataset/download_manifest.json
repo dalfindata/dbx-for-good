@@ -1,0 +1,80 @@
+[
+  {
+    "table": "databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.facilities",
+    "statement_id": "01f168da-9397-11d1-95ee-57685bad197d",
+    "total_row_count": 10088,
+    "total_byte_count": 74623815,
+    "total_chunk_count": 5,
+    "combined_csv": "data/raw/virtue_foundation_dataset/facilities/facilities.csv",
+    "chunks": [
+      {
+        "chunk_index": 0,
+        "row_count": 1384,
+        "byte_count": 20982300,
+        "file": "data/raw/virtue_foundation_dataset/facilities/facilities.part-00000.csv"
+      },
+      {
+        "chunk_index": 1,
+        "row_count": 2449,
+        "byte_count": 20985790,
+        "file": "data/raw/virtue_foundation_dataset/facilities/facilities.part-00001.csv"
+      },
+      {
+        "chunk_index": 2,
+        "row_count": 3665,
+        "byte_count": 20981934,
+        "file": "data/raw/virtue_foundation_dataset/facilities/facilities.part-00002.csv"
+      },
+      {
+        "chunk_index": 3,
+        "row_count": 848,
+        "byte_count": 4170517,
+        "file": "data/raw/virtue_foundation_dataset/facilities/facilities.part-00003.csv"
+      },
+      {
+        "chunk_index": 4,
+        "row_count": 1742,
+        "byte_count": 7503274,
+        "file": "data/raw/virtue_foundation_dataset/facilities/facilities.part-00004.csv"
+      }
+    ]
+  },
+  {
+    "table": "databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.india_post_pincode_directory",
+    "statement_id": "01f168da-a482-1a43-b557-987f517c7ecd",
+    "total_row_count": 165627,
+    "total_byte_count": 21625751,
+    "total_chunk_count": 2,
+    "combined_csv": "data/raw/virtue_foundation_dataset/india_post_pincode_directory/india_post_pincode_directory.csv",
+    "chunks": [
+      {
+        "chunk_index": 0,
+        "row_count": 160721,
+        "byte_count": 20971697,
+        "file": "data/raw/virtue_foundation_dataset/india_post_pincode_directory/india_post_pincode_directory.part-00000.csv"
+      },
+      {
+        "chunk_index": 1,
+        "row_count": 4906,
+        "byte_count": 654054,
+        "file": "data/raw/virtue_foundation_dataset/india_post_pincode_directory/india_post_pincode_directory.part-00001.csv"
+      }
+    ]
+  },
+  {
+    "table": "databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.nfhs_5_district_health_indicators",
+    "statement_id": "01f168da-a94f-1ad0-a4f7-97b6cb70770c",
+    "total_row_count": 706,
+    "total_byte_count": 405523,
+    "total_chunk_count": 1,
+    "combined_csv": "data/raw/virtue_foundation_dataset/nfhs_5_district_health_indicators/nfhs_5_district_health_indicators.csv",
+    "chunks": [
+      {
+        "chunk_index": 0,
+        "row_count": 706,
+        "byte_count": 405523,
+        "file": "data/raw/virtue_foundation_dataset/nfhs_5_district_health_indicators/nfhs_5_district_health_indicators.part-00000.csv"
+      }
+    ]
+  }
+]
