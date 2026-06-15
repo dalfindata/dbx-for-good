@@ -49,13 +49,10 @@ def load_facilities():
     
     # Fallback to local CSV
     local_path = os.path.join(os.path.dirname(__file__), "..", "data", "facilities_complete.csv")
-    alt_path = r"C:\Code\hackathons\dais-hackathon-2026\data\facilities_complete.csv"
     if os.path.exists(local_path):
         return pd.read_csv(local_path)
-    elif os.path.exists(alt_path):
-        return pd.read_csv(alt_path)
     else:
-        st.error("Could not load facilities data. Check data path.")
+        st.error("Could not load facilities data. Place facilities_complete.csv in data/ or deploy to Databricks.")
         return pd.DataFrame()
 
 
@@ -81,11 +78,8 @@ def load_nfhs():
         pass
     
     local_path = os.path.join(os.path.dirname(__file__), "..", "data", "nfhs_health.csv")
-    alt_path = r"C:\Code\hackathons\dais-hackathon-2026\data\nfhs_health.csv"
     if os.path.exists(local_path):
         return pd.read_csv(local_path)
-    elif os.path.exists(alt_path):
-        return pd.read_csv(alt_path)
     return pd.DataFrame()
 
 
@@ -94,6 +88,7 @@ def load_pincode():
     """Load India Post pincode directory."""
     try:
         from databricks.sdk import WorkspaceClient
+        from databricks.sdk.service.sql import Disposition
         w = WorkspaceClient()
         warehouse_id = os.getenv("DATABRICKS_WAREHOUSE_ID", "7701ddcec8332cb1")
         catalog = os.getenv("DATABRICKS_CATALOG", "databricks_virtue_foundation_dataset_dais_2026")
@@ -102,7 +97,6 @@ def load_pincode():
         resp = w.statement_execution.execute_statement(
             statement=f"SELECT * FROM {catalog}.{schema}.india_post_pincode_directory",
             warehouse_id=warehouse_id,
-            disposition=Disposition.EXTERNAL_LINKS,
             wait_timeout="50s"
         )
         if resp.result and resp.result.data_array:
@@ -112,11 +106,8 @@ def load_pincode():
         pass
     
     local_path = os.path.join(os.path.dirname(__file__), "..", "data", "pincode_directory.csv")
-    alt_path = r"C:\Code\hackathons\dais-hackathon-2026\data\pincode_directory.csv"
     if os.path.exists(local_path):
         return pd.read_csv(local_path)
-    elif os.path.exists(alt_path):
-        return pd.read_csv(alt_path)
     return pd.DataFrame()
 
 
@@ -210,19 +201,43 @@ def get_confidence_level(row):
 
 
 # ─── Persistence (Lakebase) ──────────────────────────────────────────
+_DB_TYPE = None  # 'postgres' or 'sqlite'
+
+
 def get_db_connection():
     """Get connection to Lakebase (or local SQLite fallback)."""
+    global _DB_TYPE
     try:
         import psycopg
         host = os.getenv("LAKEBASE_DB_HOST")
         if host:
-            return psycopg.connect(
+            conn = psycopg.connect(
                 host=host,
                 port=os.getenv("LAKEBASE_DB_PORT", "5432"),
                 dbname=os.getenv("LAKEBASE_DB_NAME", "hackathon"),
                 user=os.getenv("LAKEBASE_DB_USER", "admin"),
                 password=os.getenv("LAKEBASE_DB_PASSWORD", "")
             )
+            # Initialize schema on Lakebase too
+            conn.execute("""CREATE TABLE IF NOT EXISTS planner_notes (
+                id SERIAL PRIMARY KEY,
+                district TEXT NOT NULL,
+                state TEXT,
+                note TEXT,
+                priority TEXT DEFAULT 'medium',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS shortlist (
+                id SERIAL PRIMARY KEY,
+                district TEXT NOT NULL,
+                state TEXT,
+                desert_score REAL,
+                reason TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )""")
+            conn.commit()
+            _DB_TYPE = 'postgres'
+            return conn
     except Exception:
         pass
     
@@ -247,14 +262,21 @@ def get_db_connection():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
     conn.commit()
+    _DB_TYPE = 'sqlite'
     return conn
+
+
+def _placeholder():
+    """Return SQL placeholder based on active DB type."""
+    return "%s" if _DB_TYPE == 'postgres' else "?"
 
 
 def save_note(conn, district, state, note, priority):
     """Save planner note for a district."""
     try:
+        ph = _placeholder()
         conn.execute(
-            "INSERT INTO planner_notes (district, state, note, priority) VALUES (?, ?, ?, ?)",
+            f"INSERT INTO planner_notes (district, state, note, priority) VALUES ({ph}, {ph}, {ph}, {ph})",
             (district, state, note, priority)
         )
         conn.commit()
@@ -267,8 +289,9 @@ def save_note(conn, district, state, note, priority):
 def save_to_shortlist(conn, district, state, score, reason):
     """Add district to intervention shortlist."""
     try:
+        ph = _placeholder()
         conn.execute(
-            "INSERT INTO shortlist (district, state, desert_score, reason) VALUES (?, ?, ?, ?)",
+            f"INSERT INTO shortlist (district, state, desert_score, reason) VALUES ({ph}, {ph}, {ph}, {ph})",
             (district, state, score, reason)
         )
         conn.commit()
@@ -281,7 +304,8 @@ def save_to_shortlist(conn, district, state, score, reason):
 def get_notes(conn, district=None):
     """Retrieve planner notes."""
     if district:
-        return pd.read_sql("SELECT * FROM planner_notes WHERE district = ? ORDER BY created_at DESC", conn, params=(district,))
+        ph = _placeholder()
+        return pd.read_sql(f"SELECT * FROM planner_notes WHERE district = {ph} ORDER BY created_at DESC", conn, params=(district,))
     return pd.read_sql("SELECT * FROM planner_notes ORDER BY created_at DESC", conn)
 
 
@@ -301,7 +325,6 @@ def main():
     with st.spinner("Loading datasets..."):
         facilities = load_facilities()
         nfhs = load_nfhs()
-        pincode = load_pincode()
     
     if facilities.empty or nfhs.empty:
         st.error("Failed to load data. Please check your connection.")
@@ -422,9 +445,9 @@ def main():
         
         st.caption("Each dot represents a healthcare facility. Sparse regions indicate potential medical deserts.")
         
-        # State-level heatmap
-        st.subheader("Facility Density by State")
-        state_summary = fac_per_state.sort_values('facility_count', ascending=True).tail(20)
+        # State-level facility count
+        st.subheader("Facility Count by State (Bottom 20 — potential deserts)")
+        state_summary = fac_per_state.sort_values('facility_count', ascending=True).head(20)
         fig_bar = px.bar(
             state_summary,
             x='facility_count',
@@ -553,8 +576,8 @@ def main():
                 quick = get_quick_stats(facilities, agent_state)
                 st.markdown(quick)
         
-        # Preset questions
-        st.markdown("**Common questions:**")
+        # Single input: preset buttons OR custom text
+        st.markdown("**Quick questions:**")
         preset_questions = [
             "What are the biggest healthcare gaps in this area?",
             "Which specialties are underrepresented relative to health needs?",
@@ -562,13 +585,17 @@ def main():
             "Recommend where to prioritize a new facility placement.",
             "What are the data quality issues I should be aware of?",
         ]
-        selected_preset = st.selectbox("Choose a preset question or type your own below",
-                                       ["(Custom question)"] + preset_questions)
         
-        # Custom query
+        # Use buttons for presets
+        preset_cols = st.columns(len(preset_questions))
+        for i, (col, q) in enumerate(zip(preset_cols, preset_questions)):
+            with col:
+                if st.button(f"{'🏥❓👶📍⚠️'[i]}", help=q, key=f"preset_{i}"):
+                    st.session_state['agent_query_value'] = q
+        
         custom_query = st.text_area(
-            "Your question to the AI Analyst",
-            value="" if selected_preset == "(Custom question)" else selected_preset,
+            "Ask the AI Analyst",
+            value=st.session_state.get('agent_query_value', ''),
             placeholder="e.g., Are there enough pediatric specialists in this region?",
             key="agent_query"
         )

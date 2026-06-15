@@ -16,14 +16,14 @@ The **Medical Desert Planner** combines three datasets to compute a **Medical De
 |---------|---------|---------|
 | Healthcare Facilities (FDR) | 10,088 | Supply — what facilities exist |
 | NFHS-5 Health Indicators | 706 districts | Demand — where health needs are highest |
-| India Post Pincode Directory | 160,721 | Geographic bridge between datasets |
+| India Post Pincode Directory | 160,721 | Geographic reference (planned for district-level joins) |
 
 ### Key Features
 
 - **Desert Score** (0-100): Composite risk index from institutional birth rates, child stunting, insurance coverage, anaemia prevalence, and underweight children
 - **Interactive Map**: Visualize facility distribution and identify sparse regions
 - **District Deep Dive**: Click any district to see health indicators vs national averages
-- **Evidence Citations**: Every score links back to source data — no black-box claims
+- **AI Facility Analyst**: LLM-powered natural language Q&A about healthcare gaps with cited evidence
 - **Uncertainty Communication**: Data confidence levels (High/Medium/Low) shown alongside scores
 - **Persist Actions**: Planners can save notes, shortlist districts, export reports
 
