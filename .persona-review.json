@@ -1,10 +1,10 @@
 {
-  "timestamp": 1781545950,
-  "commit_scope": "feat: Medical Desert Planner MVP",
+  "timestamp": 1781547404,
+  "commit_scope": "feat: AI Facility Analyst Agent",
   "personas": {
-    "vp-architecture": {"score": 85, "verdict": "PASS", "notes": "Clean Streamlit arch with dual persistence mode"},
-    "cto": {"score": 90, "verdict": "PASS", "notes": "Hits all hackathon judging criteria"},
-    "vp-engineering": {"score": 80, "verdict": "PASS", "notes": "Code clean, tested locally, deps pinned"},
-    "security": {"score": 85, "verdict": "PASS", "notes": "No creds in code, public dataset, SDK auth only"}
+    "vp-architecture": {"score": 85, "verdict": "PASS", "notes": "Clean agent module with proper separation from UI"},
+    "cto": {"score": 90, "verdict": "PASS", "notes": "Adds ambition scoring dimension - LLM analysis with citations"},
+    "vp-engineering": {"score": 82, "verdict": "PASS", "notes": "Graceful degradation: Databricks->OpenAI->mock fallback chain"},
+    "security": {"score": 88, "verdict": "PASS", "notes": "No credentials in code, SDK-based auth, no PII"}
   }
 }

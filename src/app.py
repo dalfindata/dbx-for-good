@@ -13,6 +13,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import json
 import os
+from agent import run_agent, get_quick_stats
 
 # ─── Page Config ─────────────────────────────────────────────────────
 st.set_page_config(
@@ -348,8 +349,9 @@ def main():
         filtered = filtered[filtered['state_ut'].isin(selected_states)]
     
     # ─── Overview Tab ────────────────────────────────────────────────
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 Overview", "🗺️ Desert Map", "🔍 District Detail", "📋 Shortlist", "📝 Notes"
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📊 Overview", "🗺️ Desert Map", "🔍 District Detail",
+        "🤖 AI Analyst", "📋 Shortlist", "📝 Notes"
     ])
     
     with tab1:
@@ -532,6 +534,82 @@ def main():
                         st.success("Note saved!")
     
     with tab4:
+        st.subheader("🤖 AI Facility Analyst Agent")
+        st.markdown("Ask questions about healthcare gaps, facility capabilities, or get recommendations for a specific area.")
+        
+        # Agent configuration
+        col_agent1, col_agent2 = st.columns(2)
+        with col_agent1:
+            agent_state = st.selectbox("State to analyze", states, key="agent_state")
+        with col_agent2:
+            agent_district_options = ["(All districts in state)"] + sorted(
+                nfhs[nfhs['state_ut'] == agent_state]['district_name'].dropna().unique()
+            ) if agent_state else ["(Select a state first)"]
+            agent_district = st.selectbox("District (optional)", agent_district_options, key="agent_district")
+        
+        # Quick stats (no LLM call)
+        if agent_state:
+            with st.expander("📊 Quick Data Summary (instant)", expanded=True):
+                quick = get_quick_stats(facilities, agent_state)
+                st.markdown(quick)
+        
+        # Preset questions
+        st.markdown("**Common questions:**")
+        preset_questions = [
+            "What are the biggest healthcare gaps in this area?",
+            "Which specialties are underrepresented relative to health needs?",
+            "What facilities exist for maternal care and are they sufficient?",
+            "Recommend where to prioritize a new facility placement.",
+            "What are the data quality issues I should be aware of?",
+        ]
+        selected_preset = st.selectbox("Choose a preset question or type your own below",
+                                       ["(Custom question)"] + preset_questions)
+        
+        # Custom query
+        custom_query = st.text_area(
+            "Your question to the AI Analyst",
+            value="" if selected_preset == "(Custom question)" else selected_preset,
+            placeholder="e.g., Are there enough pediatric specialists in this region?",
+            key="agent_query"
+        )
+        
+        if st.button("🔍 Analyze", type="primary"):
+            if custom_query.strip():
+                district_val = None if agent_district == "(All districts in state)" else agent_district
+                
+                with st.spinner("🤖 Agent analyzing facility data and health indicators..."):
+                    result = run_agent(
+                        query=custom_query,
+                        facilities_df=facilities,
+                        nfhs_df=nfhs,
+                        state=agent_state,
+                        district=district_val
+                    )
+                
+                st.markdown("---")
+                st.markdown(result)
+                
+                # Store in session for reference
+                if 'agent_history' not in st.session_state:
+                    st.session_state.agent_history = []
+                st.session_state.agent_history.append({
+                    "query": custom_query,
+                    "state": agent_state,
+                    "district": district_val,
+                    "result": result
+                })
+            else:
+                st.warning("Please enter a question for the agent.")
+        
+        # Show conversation history
+        if 'agent_history' in st.session_state and st.session_state.agent_history:
+            st.markdown("---")
+            st.markdown("#### Previous Analyses")
+            for i, entry in enumerate(reversed(st.session_state.agent_history[-5:])):
+                with st.expander(f"Q: {entry['query'][:80]}... ({entry['state']})"):
+                    st.markdown(entry['result'])
+    
+    with tab5:
         st.subheader("📋 Intervention Shortlist")
         shortlist = get_shortlist(conn)
         if len(shortlist) > 0:
@@ -543,7 +621,7 @@ def main():
         else:
             st.info("No districts shortlisted yet. Use the District Detail tab to add districts.")
     
-    with tab5:
+    with tab6:
         st.subheader("📝 Planner Notes")
         notes = get_notes(conn)
         if len(notes) > 0:
