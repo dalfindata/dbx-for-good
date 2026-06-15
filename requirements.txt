@@ -1,0 +1,7 @@
+streamlit==1.58.0
+pandas>=2.0
+plotly>=5.18
+pydeck>=0.9
+databricks-sdk>=0.117.0
+psycopg[binary]>=3.1
+openai>=1.0.0

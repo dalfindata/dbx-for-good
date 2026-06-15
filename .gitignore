@@ -1,0 +1,9 @@
+# Data files (too large for git)
+data/*.csv
+data/*.json
+
+# Local dev artifacts
+planner.db
+__pycache__/
+*.pyc
+pr_reviews.json
