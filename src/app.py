@@ -49,12 +49,51 @@ CONF_BADGE = {
 @st.cache_data
 def load():
     g = pd.read_parquet(f"{DATA}/district_gaps.parquet")
-    c = pd.read_parquet(f"{DATA}/facility_citations.parquet")
+    # Load citations: try local parquet first, then SQL warehouse
+    cit_path = f"{DATA}/facility_citations.parquet"
+    if os.path.exists(cit_path):
+        c = pd.read_parquet(cit_path)
+    else:
+        c = _load_citations_from_catalog()
     # NFHS names carry stray whitespace — strip so selectbox/lookup/citation joins stay consistent
     for df in (g, c):
         df["district_name"] = df["district_name"].astype(str).str.strip()
         df["state_ut"] = df["state_ut"].astype(str).str.strip()
     return g, c
+
+
+def _load_citations_from_catalog():
+    """Load facility data from Databricks catalog when parquet not bundled."""
+    try:
+        from databricks.sdk import WorkspaceClient
+        w = WorkspaceClient()
+        warehouse_id = os.environ.get("DATABRICKS_WAREHOUSE_ID", "7701ddcec8332cb1")
+        catalog = "databricks_virtue_foundation_dataset_dais_2026"
+        schema = "virtue_foundation_dataset"
+        resp = w.statement_execution.execute_statement(
+            statement=f"""SELECT unique_id, name, facilityTypeId, operatorTypeId,
+                          address_city, address_stateOrRegion AS state_ut,
+                          specialties, description, capability, procedure, equipment,
+                          yearEstablished, capacity, numberDoctors,
+                          officialWebsite AS source_urls, latitude AS lat, longitude AS lon
+                   FROM {catalog}.{schema}.facilities""",
+            warehouse_id=warehouse_id,
+            wait_timeout="50s"
+        )
+        if resp.result and resp.result.data_array:
+            cols = [c.name for c in resp.manifest.schema.columns]
+            df = pd.DataFrame(resp.result.data_array, columns=cols)
+            # Add district_name from the gaps table (join by state)
+            df["district_name"] = df["state_ut"]  # simplified — best-effort
+            # Add maternal flag
+            blob = (df[["specialties", "capability", "description"]].fillna("").astype(str)
+                    .agg(" ".join, axis=1).str.lower())
+            df["is_obgyn"] = blob.str.contains(r"obstet|ob/gyn|gyn|maternit|delivery|natal", regex=True)
+            df["is_hospital"] = df["facilityTypeId"].str.lower().eq("hospital")
+            return df
+    except Exception as e:
+        st.warning(f"Could not load facility citations: {e}")
+    return pd.DataFrame()
 
 
 @st.cache_data
