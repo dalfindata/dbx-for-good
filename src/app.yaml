@@ -1,0 +1,17 @@
+command:
+  - sh
+  - -c
+  - 'exec streamlit run app.py --server.port "$DATABRICKS_APP_PORT" --server.address "$STREAMLIT_SERVER_ADDRESS"'
+env:
+  - name: STREAMLIT_SERVER_ADDRESS
+    value: "0.0.0.0"
+  - name: STREAMLIT_SERVER_ENABLE_CORS
+    value: "false"
+  - name: STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION
+    value: "false"
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: sql-warehouse
+  - name: DATABRICKS_CATALOG
+    value: databricks_virtue_foundation_dataset_dais_2026
+  - name: DATABRICKS_SCHEMA
+    value: virtue_foundation_dataset
