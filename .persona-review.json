@@ -1,10 +1,10 @@
 {
-  "timestamp": 1781549651,
-  "commit_scope": "fix: address all 12 Copilot review comments",
+  "timestamp": 1781552747,
+  "commit_scope": "feat: merge enhanced planner with per-capita scoring + AI agent",
   "personas": {
-    "vp-architecture": {"score": 88, "verdict": "PASS", "notes": "Fixed DB portability, removed hardcoded paths, proper schema init"},
-    "cto": {"score": 90, "verdict": "PASS", "notes": "All review items addressed, app tested locally"},
-    "vp-engineering": {"score": 85, "verdict": "PASS", "notes": "Clean .gitignore, no large files in repo, dynamic placeholders"},
-    "security": {"score": 90, "verdict": "PASS", "notes": "Removed hardcoded paths, no credentials, proper gitignore"}
+    "vp-architecture": {"score": 92, "verdict": "PASS", "notes": "Per-capita z-scored gap model, parquet pre-computed data, proper persistence module"},
+    "cto": {"score": 95, "verdict": "PASS", "notes": "Major upgrade: population-adjusted scoring, geocoding, citations, data readiness tab, AI agent"},
+    "vp-engineering": {"score": 88, "verdict": "PASS", "notes": "Clean module separation, tested locally, 14.6MB parquet within git limits"},
+    "security": {"score": 90, "verdict": "PASS", "notes": "No credentials, SDK auth, PG DSN from env vars only, public dataset"}
   }
 }
