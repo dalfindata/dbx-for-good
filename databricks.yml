@@ -1,0 +1,30 @@
+bundle:
+  name: medical-desert-planner
+
+workspace:
+  host: https://dbc-32a89911-6688.cloud.databricks.com
+
+targets:
+  dev:
+    default: true
+
+resources:
+  apps:
+    medical_desert_planner:
+      name: "medical-desert-planner"
+      description: "Healthcare Desert Planner - DAIS Hackathon for Good 2026"
+      source_code_path: ./src
+      config:
+        command:
+          - "streamlit"
+          - "run"
+          - "app.py"
+          - "--server.port"
+          - "8501"
+          - "--server.address"
+          - "0.0.0.0"
+        env:
+          - name: DATABRICKS_CATALOG
+            value: databricks_virtue_foundation_dataset_dais_2026
+          - name: DATABRICKS_SCHEMA
+            value: virtue_foundation_dataset
