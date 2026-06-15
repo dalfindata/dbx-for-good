@@ -7,11 +7,25 @@ Combines:
 - 706 district-level health indicators (NFHS-5)
 - 160,721 pincode entries for geo-mapping
 """
+from __future__ import annotations
+
+from typing import Any, Literal, Protocol, TypeAlias, cast
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import os
 from agent import run_agent, get_quick_stats
+
+
+DBType: TypeAlias = Literal["postgres", "sqlite"]
+INITIAL_DESERT_SCORE = 0.0
+
+
+class DbConnection(Protocol):
+    def execute(self, query: str, params: tuple[Any, ...] = ()) -> Any: ...
+
+    def commit(self) -> None: ...
 
 # ─── Page Config ─────────────────────────────────────────────────────
 st.set_page_config(
@@ -23,7 +37,7 @@ st.set_page_config(
 
 # ─── Data Loading ────────────────────────────────────────────────────
 @st.cache_data
-def load_facilities():
+def load_facilities() -> pd.DataFrame:
     """Load facilities from Databricks or local CSV."""
     # Try Databricks SQL first (when deployed)
     try:
@@ -55,7 +69,7 @@ def load_facilities():
 
 
 @st.cache_data
-def load_nfhs():
+def load_nfhs() -> pd.DataFrame:
     """Load NFHS-5 district health indicators."""
     try:
         from databricks.sdk import WorkspaceClient
@@ -82,7 +96,7 @@ def load_nfhs():
 
 
 @st.cache_data
-def load_pincode():
+def load_pincode() -> pd.DataFrame:
     """Load India Post pincode directory."""
     try:
         from databricks.sdk import WorkspaceClient
@@ -110,7 +124,7 @@ def load_pincode():
 
 
 # ─── Data Processing ─────────────────────────────────────────────────
-def normalize_state(state_name):
+def normalize_state(state_name: object) -> str | None:
     """Normalize state names to match between datasets."""
     if pd.isna(state_name):
         return None
@@ -124,11 +138,10 @@ def normalize_state(state_name):
         'andaman & nicobar islands': 'Andaman & Nicobar Islands',
         'dadra and nagar haveli and daman and diu': 'Dadra & Nagar Haveli and Daman & Diu',
     }
-    normalized = state_map.get(str(state_name).lower().strip(), state_name)
-    return normalized
+    return state_map.get(str(state_name).lower().strip(), str(state_name))
 
 
-def compute_desert_score(row):
+def compute_desert_score(row: pd.Series[Any]) -> float | None:
     """
     Compute a Medical Desert Risk Score (0-100) for a district.
     Higher = more likely a healthcare desert.
@@ -140,8 +153,8 @@ def compute_desert_score(row):
     - Low facility density (facilities per population proxy)
     - High anaemia prevalence
     """
-    score = 0
-    weights = []
+    score = INITIAL_DESERT_SCORE
+    weights: list[float] = []
     
     # Institutional births (lower = worse access)
     inst_birth = pd.to_numeric(row.get('institutional_birth_5y_pct'), errors='coerce')
@@ -180,7 +193,7 @@ def compute_desert_score(row):
     return round(score / sum(weights), 1)
 
 
-def get_confidence_level(row):
+def get_confidence_level(row: pd.Series[Any]) -> str:
     """Determine data confidence for a district assessment."""
     available = 0
     total = 5
@@ -199,10 +212,10 @@ def get_confidence_level(row):
 
 
 # ─── Persistence (Lakebase) ──────────────────────────────────────────
-_DB_TYPE = None  # 'postgres' or 'sqlite'
+_DB_TYPE: DBType | None = None
 
 
-def get_db_connection():
+def get_db_connection() -> DbConnection:
     """Get connection to Lakebase (or local SQLite fallback)."""
     global _DB_TYPE
     try:
@@ -235,7 +248,7 @@ def get_db_connection():
             )""")
             conn.commit()
             _DB_TYPE = 'postgres'
-            return conn
+            return cast(DbConnection, conn)
     except Exception:
         pass
     
@@ -264,12 +277,14 @@ def get_db_connection():
     return conn
 
 
-def _placeholder():
+def _placeholder() -> str:
     """Return SQL placeholder based on active DB type."""
     return "%s" if _DB_TYPE == 'postgres' else "?"
 
 
-def save_note(conn, district, state, note, priority):
+def save_note(
+    conn: DbConnection, district: str, state: object, note: str, priority: str
+) -> bool:
     """Save planner note for a district."""
     try:
         ph = _placeholder()
@@ -284,7 +299,9 @@ def save_note(conn, district, state, note, priority):
         return False
 
 
-def save_to_shortlist(conn, district, state, score, reason):
+def save_to_shortlist(
+    conn: DbConnection, district: str, state: object, score: object, reason: str
+) -> bool:
     """Add district to intervention shortlist."""
     try:
         ph = _placeholder()
@@ -299,7 +316,7 @@ def save_to_shortlist(conn, district, state, score, reason):
         return False
 
 
-def get_notes(conn, district=None):
+def get_notes(conn: DbConnection, district: str | None = None) -> pd.DataFrame:
     """Retrieve planner notes."""
     if district:
         ph = _placeholder()
@@ -307,13 +324,13 @@ def get_notes(conn, district=None):
     return pd.read_sql("SELECT * FROM planner_notes ORDER BY created_at DESC", conn)
 
 
-def get_shortlist(conn):
+def get_shortlist(conn: DbConnection) -> pd.DataFrame:
     """Retrieve intervention shortlist."""
     return pd.read_sql("SELECT * FROM shortlist ORDER BY desert_score DESC", conn)
 
 
 # ─── Main App ────────────────────────────────────────────────────────
-def main():
+def main() -> None:
     # Header
     st.title("🏥 Medical Desert Planner")
     st.markdown("**Track 2: Where are the real, highest-risk gaps in care?**")

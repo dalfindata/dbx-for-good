@@ -9,14 +9,32 @@ Uses Databricks Foundation Model APIs (or OpenAI-compatible endpoint) to:
 
 All claims include uncertainty markers and source citations.
 """
+from __future__ import annotations
+
 import os
 import json
 import pandas as pd
-from typing import Optional
+from typing import Any, Literal, TypeAlias, cast
+
+
+JSONValue: TypeAlias = (
+    None | bool | int | float | str | list["JSONValue"] | dict[str, "JSONValue"]
+)
+JSONObject: TypeAlias = dict[str, JSONValue]
+LLMClient: TypeAlias = (
+    tuple[Literal["databricks"], Any]
+    | tuple[Literal["openai"], str]
+    | tuple[Literal["mock"], None]
+)
+CAPABILITY_SAMPLE_LIMIT = 5
+SPECIALTY_SAMPLE_LIMIT = 3
+SAMPLE_FACILITY_LIMIT = 5
+TOP_EVIDENCE_LIMIT = 15
+PROMPT_EVIDENCE_LIMIT = 10
 
 # ─── LLM Client ──────────────────────────────────────────────────────
 
-def get_llm_client():
+def get_llm_client() -> LLMClient:
     """Get LLM client - tries Databricks Foundation Models first, then OpenAI fallback."""
     try:
         from databricks.sdk import WorkspaceClient
@@ -41,7 +59,8 @@ def call_llm(system_prompt: str, user_prompt: str, max_tokens: int = 1500) -> st
         try:
             # Use Databricks Foundation Model serving endpoint
             endpoint = os.getenv("DATABRICKS_LLM_ENDPOINT", "databricks-meta-llama-3-3-70b-instruct")
-            response = client.serving_endpoints.query(
+            db_client = cast(Any, client)
+            response = db_client.serving_endpoints.query(
                 name=endpoint,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -50,7 +69,7 @@ def call_llm(system_prompt: str, user_prompt: str, max_tokens: int = 1500) -> st
                 max_tokens=max_tokens,
                 temperature=0.3
             )
-            return response.choices[0].message.content
+            return cast(str, response.choices[0].message.content)
         except Exception as e:
             return f"⚠️ LLM call failed ({e}). Showing data-only analysis below."
 
@@ -58,7 +77,7 @@ def call_llm(system_prompt: str, user_prompt: str, max_tokens: int = 1500) -> st
         try:
             import openai
             oai_client = openai.OpenAI(
-                api_key=client,
+                api_key=cast(str, client),
                 base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
             )
             response = oai_client.chat.completions.create(
@@ -70,7 +89,7 @@ def call_llm(system_prompt: str, user_prompt: str, max_tokens: int = 1500) -> st
                 max_tokens=max_tokens,
                 temperature=0.3
             )
-            return response.choices[0].message.content
+            return cast(str, response.choices[0].message.content)
         except Exception as e:
             return f"⚠️ LLM call failed ({e}). Showing data-only analysis below."
 
@@ -93,7 +112,16 @@ def _mock_analysis(prompt: str) -> str:
 
 # ─── Agent Tools (Data Analysis Functions) ────────────────────────────
 
-def analyze_district_facilities(facilities_df: pd.DataFrame, state: str, district: str = None) -> dict:
+def _numeric_value(value: object) -> float | None:
+    numeric = pd.to_numeric(value, errors='coerce')
+    if pd.notna(numeric):
+        return float(numeric)
+    return None
+
+
+def analyze_district_facilities(
+    facilities_df: pd.DataFrame, state: str, district: str | None = None
+) -> JSONObject:
     """Gather facility evidence for a district/state for LLM context."""
     # Prefer state_normalized column when available (aligns with NFHS state names)
     if 'state_normalized' in facilities_df.columns:
@@ -122,52 +150,72 @@ def analyze_district_facilities(facilities_df: pd.DataFrame, state: str, distric
         return {"total": 0, "message": f"No facilities found in dataset for {state}"}
 
     # Capability summary
-    capabilities = []
+    capabilities: list[str] = []
     for _, row in district_facs.head(20).iterrows():
         cap = row.get('capabilities', '')
         if pd.notna(cap) and str(cap).strip():
             try:
-                cap_list = json.loads(str(cap))
+                cap_list: object = json.loads(str(cap))
                 if isinstance(cap_list, list):
-                    capabilities.extend(cap_list[:5])
+                    capabilities.extend(str(item) for item in cap_list[:CAPABILITY_SAMPLE_LIMIT])
             except (json.JSONDecodeError, TypeError):
                 capabilities.append(str(cap)[:100])
 
     # Specialty summary
-    specialties = []
+    specialties: list[str] = []
     for _, row in district_facs.head(20).iterrows():
         spec = row.get('specialties', '')
         if pd.notna(spec) and str(spec).strip():
             try:
-                spec_list = json.loads(str(spec))
+                spec_list: object = json.loads(str(spec))
                 if isinstance(spec_list, list):
-                    specialties.extend(spec_list[:3])
+                    specialties.extend(str(item) for item in spec_list[:SPECIALTY_SAMPLE_LIMIT])
             except (json.JSONDecodeError, TypeError):
                 specialties.append(str(spec)[:50])
 
     # Type breakdown
-    type_counts = district_facs['facilityTypeId'].value_counts().to_dict()
+    type_counts: JSONObject = {
+        str(facility_type): int(count)
+        for facility_type, count in district_facs['facilityTypeId'].value_counts().items()
+    }
 
     # Capacity
     caps = pd.to_numeric(district_facs['capacity'], errors='coerce').dropna()
     total_capacity = int(caps.sum()) if len(caps) > 0 else None
 
     # Sample facility names for citations
-    sample_facilities = district_facs[['name', 'address_city', 'facilityTypeId']].head(5).to_dict('records')
+    sample_facilities: list[JSONValue] = [
+        {
+            "name": str(row.get('name', '')),
+            "address_city": str(row.get('address_city', '')),
+            "facilityTypeId": str(row.get('facilityTypeId', '')),
+        }
+        for _, row in district_facs[
+            ['name', 'address_city', 'facilityTypeId']
+        ].head(SAMPLE_FACILITY_LIMIT).iterrows()
+    ]
+    top_specialties: list[JSONValue] = [item for item in list(set(specialties))[:TOP_EVIDENCE_LIMIT]]
+    top_capabilities: list[JSONValue] = [
+        item for item in list(set(capabilities))[:TOP_EVIDENCE_LIMIT]
+    ]
 
     return {
         "total": total,
         "type_breakdown": type_counts,
         "total_capacity": total_capacity,
-        "top_specialties": list(set(specialties))[:15],
-        "top_capabilities": list(set(capabilities))[:15],
+        "top_specialties": top_specialties,
+        "top_capabilities": top_capabilities,
         "sample_facilities": sample_facilities,
         "has_capacity_data": f"{len(caps)}/{total} facilities report capacity"
     }
 
 
-def identify_care_gaps(facilities_df: pd.DataFrame, nfhs_df: pd.DataFrame,
-                       state: str, district: str = None) -> dict:
+def identify_care_gaps(
+    facilities_df: pd.DataFrame,
+    nfhs_df: pd.DataFrame,
+    state: str,
+    district: str | None = None,
+) -> JSONObject:
     """Identify gaps between health needs (NFHS) and available facilities."""
     # Get NFHS data
     if district:
@@ -178,20 +226,23 @@ def identify_care_gaps(facilities_df: pd.DataFrame, nfhs_df: pd.DataFrame,
     # Get facility evidence
     fac_evidence = analyze_district_facilities(facilities_df, state, district)
 
-    nfhs_indicators = {}
+    nfhs_indicators: JSONObject = {}
     if len(nfhs_row) > 0:
         # Aggregate across all matching rows (e.g., multiple districts per state)
         row = nfhs_row.mean(numeric_only=True) if len(nfhs_row) > 1 else nfhs_row.iloc[0]
-        nfhs_indicators = {
-            "institutional_birth_pct": pd.to_numeric(row.get('institutional_birth_5y_pct'), errors='coerce'),
-            "child_stunting_pct": pd.to_numeric(row.get('child_u5_who_are_stunted_height_for_age_18_pct'), errors='coerce'),
-            "insurance_pct": pd.to_numeric(row.get('hh_member_covered_health_insurance_pct'), errors='coerce'),
-            "anaemia_pct": pd.to_numeric(row.get('all_w15_49_who_are_anaemic_pct'), errors='coerce'),
-            "vaccination_pct": pd.to_numeric(row.get('child_12_23m_fully_vaccinated_based_on_information_from_eit_pct'), errors='coerce'),
-            "c_section_pct": pd.to_numeric(row.get('births_delivered_by_c_section_5y_pct'), errors='coerce'),
+        possible_indicators = {
+            "institutional_birth_pct": _numeric_value(row.get('institutional_birth_5y_pct')),
+            "child_stunting_pct": _numeric_value(row.get('child_u5_who_are_stunted_height_for_age_18_pct')),
+            "insurance_pct": _numeric_value(row.get('hh_member_covered_health_insurance_pct')),
+            "anaemia_pct": _numeric_value(row.get('all_w15_49_who_are_anaemic_pct')),
+            "vaccination_pct": _numeric_value(
+                row.get('child_12_23m_fully_vaccinated_based_on_information_from_eit_pct')
+            ),
+            "c_section_pct": _numeric_value(row.get('births_delivered_by_c_section_5y_pct')),
         }
-        # Remove NaN values
-        nfhs_indicators = {k: v for k, v in nfhs_indicators.items() if pd.notna(v)}
+        nfhs_indicators = {
+            key: value for key, value in possible_indicators.items() if value is not None
+        }
 
     return {
         "facility_evidence": fac_evidence,
@@ -234,10 +285,12 @@ Output format:
 """
 
 
-def build_analysis_prompt(query: str, gap_data: dict) -> str:
+def build_analysis_prompt(query: str, gap_data: JSONObject) -> str:
     """Build the user prompt with data context for the LLM."""
-    fac = gap_data["facility_evidence"]
-    indicators = gap_data["health_indicators"]
+    fac = cast(JSONObject, gap_data["facility_evidence"])
+    indicators = cast(JSONObject, gap_data["health_indicators"])
+    top_specialties = cast(list[str], fac.get('top_specialties', []))
+    top_capabilities = cast(list[str], fac.get('top_capabilities', []))
 
     context = f"""## Data Context for Analysis
 
@@ -246,8 +299,8 @@ def build_analysis_prompt(query: str, gap_data: dict) -> str:
 - Type breakdown: {json.dumps(fac.get('type_breakdown', {}), indent=2)}
 - Total reported capacity: {fac.get('total_capacity', 'Not reported for most facilities')}
 - Capacity data availability: {fac.get('has_capacity_data', 'Unknown')}
-- Top specialties: {', '.join(fac.get('top_specialties', [])[:10]) or 'None extracted'}
-- Top capabilities: {', '.join(fac.get('top_capabilities', [])[:10]) or 'None extracted'}
+- Top specialties: {', '.join(top_specialties[:PROMPT_EVIDENCE_LIMIT]) or 'None extracted'}
+- Top capabilities: {', '.join(top_capabilities[:PROMPT_EVIDENCE_LIMIT]) or 'None extracted'}
 - Sample facilities (for citations): {json.dumps(fac.get('sample_facilities', []), indent=2)}
 
 ### Health Indicators (NFHS-5)
@@ -269,7 +322,7 @@ def build_analysis_prompt(query: str, gap_data: dict) -> str:
 # ─── Main Agent Interface ─────────────────────────────────────────────
 
 def run_agent(query: str, facilities_df: pd.DataFrame, nfhs_df: pd.DataFrame,
-              state: str, district: Optional[str] = None) -> str:
+              state: str, district: str | None = None) -> str:
     """
     Run the Facility Analyst Agent.
 
@@ -293,7 +346,7 @@ def run_agent(query: str, facilities_df: pd.DataFrame, nfhs_df: pd.DataFrame,
     analysis = call_llm(SYSTEM_PROMPT, user_prompt)
 
     # Step 4: Append data summary footer
-    fac = gap_data["facility_evidence"]
+    fac = cast(JSONObject, gap_data["facility_evidence"])
     footer = f"""
 
 ---
