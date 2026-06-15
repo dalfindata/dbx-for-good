@@ -57,8 +57,10 @@ def load():
         c = _load_citations_from_catalog()
     # NFHS names carry stray whitespace — strip so selectbox/lookup/citation joins stay consistent
     for df in (g, c):
-        df["district_name"] = df["district_name"].astype(str).str.strip()
-        df["state_ut"] = df["state_ut"].astype(str).str.strip()
+        if "district_name" in df.columns:
+            df["district_name"] = df["district_name"].astype(str).str.strip()
+        if "state_ut" in df.columns:
+            df["state_ut"] = df["state_ut"].astype(str).str.strip()
     return g, c
 
 
@@ -72,28 +74,34 @@ def _load_citations_from_catalog():
         schema = "virtue_foundation_dataset"
         resp = w.statement_execution.execute_statement(
             statement=f"""SELECT unique_id, name, facilityTypeId, operatorTypeId,
-                          address_city, address_stateOrRegion AS state_ut,
+                          address_city, address_stateOrRegion,
                           specialties, description, capability, procedure, equipment,
                           yearEstablished, capacity, numberDoctors,
-                          officialWebsite AS source_urls, latitude AS lat, longitude AS lon
+                          officialWebsite, latitude, longitude
                    FROM {catalog}.{schema}.facilities""",
             warehouse_id=warehouse_id,
             wait_timeout="50s"
         )
         if resp.result and resp.result.data_array:
-            cols = [c.name for c in resp.manifest.schema.columns]
+            cols = [col.name for col in resp.manifest.schema.columns]
             df = pd.DataFrame(resp.result.data_array, columns=cols)
-            # Add district_name from the gaps table (join by state)
-            df["district_name"] = df["state_ut"]  # simplified — best-effort
+            # Map to expected schema
+            df["state_ut"] = df["address_stateOrRegion"]
+            df["district_name"] = df["address_city"]  # best proxy without geocoding
+            df["lat"] = pd.to_numeric(df["latitude"], errors="coerce")
+            df["lon"] = pd.to_numeric(df["longitude"], errors="coerce")
+            df["source_urls"] = df["officialWebsite"]
             # Add maternal flag
             blob = (df[["specialties", "capability", "description"]].fillna("").astype(str)
                     .agg(" ".join, axis=1).str.lower())
             df["is_obgyn"] = blob.str.contains(r"obstet|ob/gyn|gyn|maternit|delivery|natal", regex=True)
-            df["is_hospital"] = df["facilityTypeId"].str.lower().eq("hospital")
+            df["is_hospital"] = df["facilityTypeId"].fillna("").str.lower().eq("hospital")
             return df
     except Exception as e:
         st.warning(f"Could not load facility citations: {e}")
-    return pd.DataFrame()
+    # Return empty DF with required columns
+    return pd.DataFrame(columns=["district_name", "state_ut", "name", "facilityTypeId",
+                                  "description", "capability", "specialties", "is_obgyn"])
 
 
 @st.cache_data
