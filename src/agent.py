@@ -95,9 +95,15 @@ def _mock_analysis(prompt: str) -> str:
 
 def analyze_district_facilities(facilities_df: pd.DataFrame, state: str, district: str = None) -> dict:
     """Gather facility evidence for a district/state for LLM context."""
-    state_facs = facilities_df[
-        facilities_df['address_stateOrRegion'].str.lower().str.strip() == state.lower().strip()
-    ]
+    # Prefer state_normalized column when available (aligns with NFHS state names)
+    if 'state_normalized' in facilities_df.columns:
+        state_facs = facilities_df[
+            facilities_df['state_normalized'].str.lower().str.strip() == state.lower().strip()
+        ]
+    else:
+        state_facs = facilities_df[
+            facilities_df['address_stateOrRegion'].str.lower().str.strip() == state.lower().strip()
+        ]
 
     if district:
         # Try city-level match as proxy for district
@@ -174,7 +180,8 @@ def identify_care_gaps(facilities_df: pd.DataFrame, nfhs_df: pd.DataFrame,
 
     nfhs_indicators = {}
     if len(nfhs_row) > 0:
-        row = nfhs_row.iloc[0]
+        # Aggregate across all matching rows (e.g., multiple districts per state)
+        row = nfhs_row.mean(numeric_only=True) if len(nfhs_row) > 1 else nfhs_row.iloc[0]
         nfhs_indicators = {
             "institutional_birth_pct": pd.to_numeric(row.get('institutional_birth_5y_pct'), errors='coerce'),
             "child_stunting_pct": pd.to_numeric(row.get('child_u5_who_are_stunted_height_for_age_18_pct'), errors='coerce'),
@@ -300,9 +307,15 @@ def run_agent(query: str, facilities_df: pd.DataFrame, nfhs_df: pd.DataFrame,
 
 def get_quick_stats(facilities_df: pd.DataFrame, state: str) -> str:
     """Get quick data summary without LLM call (for instant feedback)."""
-    state_facs = facilities_df[
-        facilities_df['address_stateOrRegion'].str.lower().str.strip() == state.lower().strip()
-    ]
+    # Prefer state_normalized column when available (aligns with NFHS state names)
+    if 'state_normalized' in facilities_df.columns:
+        state_facs = facilities_df[
+            facilities_df['state_normalized'].str.lower().str.strip() == state.lower().strip()
+        ]
+    else:
+        state_facs = facilities_df[
+            facilities_df['address_stateOrRegion'].str.lower().str.strip() == state.lower().strip()
+        ]
     total = len(state_facs)
     if total == 0:
         return f"⚠️ No facilities found for state: {state}"

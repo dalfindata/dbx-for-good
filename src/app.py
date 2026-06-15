@@ -10,8 +10,6 @@ Combines:
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-import json
 import os
 from agent import run_agent, get_quick_stats
 
@@ -342,8 +340,11 @@ def main():
     # Count facilities per state
     fac_per_state = facilities.groupby('state_normalized').size().reset_index(name='facility_count')
     
-    # Merge with NFHS
-    nfhs_with_fac = nfhs.merge(fac_per_state, left_on='state_ut', right_on='state_normalized', how='left')
+    # Normalize NFHS state names to align with facilities dataset
+    nfhs['state_normalized'] = nfhs['state_ut'].apply(normalize_state)
+    
+    # Merge with NFHS using normalized state names on both sides
+    nfhs_with_fac = nfhs.merge(fac_per_state, on='state_normalized', how='left')
     nfhs_with_fac['facility_count'] = nfhs_with_fac['facility_count'].fillna(0)
     
     # Database connection for persistence
