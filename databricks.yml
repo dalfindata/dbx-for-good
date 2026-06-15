@@ -4,26 +4,48 @@ bundle:
 workspace:
   host: https://dbc-32a89911-6688.cloud.databricks.com
 
+variables:
+  warehouse_id:
+    description: SQL warehouse ID used by the Databricks App.
+  app_name:
+    description: Databricks App name for the active target.
+
 targets:
   dev:
     default: true
+    mode: development
+    variables:
+      app_name: dev-medical-desert-planner
+  prod:
+    mode: production
+    variables:
+      app_name: medical-desert-planner
 
 resources:
   apps:
     medical_desert_planner:
-      name: "medical-desert-planner"
+      name: ${var.app_name}
       description: "Healthcare Desert Planner - DAIS Hackathon for Good 2026"
       source_code_path: ./src
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
       config:
         command:
-          - "streamlit"
-          - "run"
-          - "app.py"
-          - "--server.port"
-          - "8501"
-          - "--server.address"
-          - "0.0.0.0"
+          - "sh"
+          - "-c"
+          - 'exec streamlit run app.py --server.port "$DATABRICKS_APP_PORT" --server.address "$STREAMLIT_SERVER_ADDRESS"'
         env:
+          - name: STREAMLIT_SERVER_ADDRESS
+            value: "0.0.0.0"
+          - name: STREAMLIT_SERVER_ENABLE_CORS
+            value: "false"
+          - name: STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION
+            value: "false"
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: sql-warehouse
           - name: DATABRICKS_CATALOG
             value: databricks_virtue_foundation_dataset_dais_2026
           - name: DATABRICKS_SCHEMA

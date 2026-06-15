@@ -5,6 +5,7 @@ data/raw/virtue_foundation_dataset/**/*.part-*.csv
 
 # Local dev artifacts
 planner.db
+.venv/
 __pycache__/
 *.pyc
 pr_reviews.json

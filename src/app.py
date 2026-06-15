@@ -20,12 +20,68 @@ from agent import run_agent, get_quick_stats
 
 DBType: TypeAlias = Literal["postgres", "sqlite"]
 INITIAL_DESERT_SCORE = 0.0
+SQL_WAIT_TIMEOUT = "50s"
 
 
 class DbConnection(Protocol):
     def execute(self, query: str, params: tuple[Any, ...] = ()) -> Any: ...
 
     def commit(self) -> None: ...
+
+
+def _warehouse_id() -> str:
+    return os.environ["DATABRICKS_WAREHOUSE_ID"]
+
+
+def _catalog() -> str:
+    return os.getenv("DATABRICKS_CATALOG", "databricks_virtue_foundation_dataset_dais_2026")
+
+
+def _schema() -> str:
+    return os.getenv("DATABRICKS_SCHEMA", "virtue_foundation_dataset")
+
+
+def _table_name(table: str) -> str:
+    return f"{_catalog()}.{_schema()}.{table}"
+
+
+def _load_databricks_table(table: str) -> pd.DataFrame:
+    from databricks.sdk import WorkspaceClient
+
+    w = WorkspaceClient()
+    resp = w.statement_execution.execute_statement(
+        statement=f"SELECT * FROM {_table_name(table)}",
+        warehouse_id=_warehouse_id(),
+        wait_timeout=SQL_WAIT_TIMEOUT,
+    )
+
+    status = getattr(resp, "status", None)
+    state = getattr(status, "state", None)
+    if state and str(state) != "SUCCEEDED":
+        error = getattr(status, "error", None)
+        raise RuntimeError(f"Statement ended in state {state}: {error}")
+
+    result = getattr(resp, "result", None)
+    data_array = getattr(result, "data_array", None)
+    if data_array is None:
+        raise RuntimeError(f"No result data returned for {_table_name(table)}")
+
+    manifest = getattr(resp, "manifest", None)
+    schema = getattr(manifest, "schema", None)
+    columns = getattr(schema, "columns", [])
+    column_names = [str(column.name) for column in columns]
+    return pd.DataFrame(data_array, columns=column_names)
+
+
+def _load_local_csv(filename: str) -> pd.DataFrame:
+    local_path = os.path.join(os.path.dirname(__file__), "..", "data", filename)
+    if os.path.exists(local_path):
+        return pd.read_csv(local_path)
+    return pd.DataFrame()
+
+
+def _show_load_error(table: str, error: Exception) -> None:
+    st.error(f"Could not load {_table_name(table)} from Databricks: {error}")
 
 # ─── Page Config ─────────────────────────────────────────────────────
 st.set_page_config(
@@ -39,88 +95,37 @@ st.set_page_config(
 @st.cache_data
 def load_facilities() -> pd.DataFrame:
     """Load facilities from Databricks or local CSV."""
-    # Try Databricks SQL first (when deployed)
     try:
-        from databricks.sdk import WorkspaceClient
-        from databricks.sdk.service.sql import Disposition
-        w = WorkspaceClient()
-        warehouse_id = os.getenv("DATABRICKS_WAREHOUSE_ID", "7701ddcec8332cb1")
-        catalog = os.getenv("DATABRICKS_CATALOG", "databricks_virtue_foundation_dataset_dais_2026")
-        schema = os.getenv("DATABRICKS_SCHEMA", "virtue_foundation_dataset")
-        
-        resp = w.statement_execution.execute_statement(
-            statement=f"SELECT * FROM {catalog}.{schema}.facilities",
-            warehouse_id=warehouse_id,
-            wait_timeout="50s"
-        )
-        if resp.result and resp.result.data_array:
-            cols = [c.name for c in resp.manifest.schema.columns]
-            return pd.DataFrame(resp.result.data_array, columns=cols)
-    except Exception:
-        pass
-    
-    # Fallback to local CSV
-    local_path = os.path.join(os.path.dirname(__file__), "..", "data", "facilities_complete.csv")
-    if os.path.exists(local_path):
-        return pd.read_csv(local_path)
-    else:
-        st.error("Could not load facilities data. Place facilities_complete.csv in data/ or deploy to Databricks.")
-        return pd.DataFrame()
+        return _load_databricks_table("facilities")
+    except Exception as error:
+        _show_load_error("facilities", error)
+
+    facilities = _load_local_csv("facilities_complete.csv")
+    if facilities.empty:
+        st.error("Could not load facilities data from Databricks or local CSV.")
+    return facilities
 
 
 @st.cache_data
 def load_nfhs() -> pd.DataFrame:
     """Load NFHS-5 district health indicators."""
     try:
-        from databricks.sdk import WorkspaceClient
-        w = WorkspaceClient()
-        warehouse_id = os.getenv("DATABRICKS_WAREHOUSE_ID", "7701ddcec8332cb1")
-        catalog = os.getenv("DATABRICKS_CATALOG", "databricks_virtue_foundation_dataset_dais_2026")
-        schema = os.getenv("DATABRICKS_SCHEMA", "virtue_foundation_dataset")
-        
-        resp = w.statement_execution.execute_statement(
-            statement=f"SELECT * FROM {catalog}.{schema}.nfhs_5_district_health_indicators",
-            warehouse_id=warehouse_id,
-            wait_timeout="50s"
-        )
-        if resp.result and resp.result.data_array:
-            cols = [c.name for c in resp.manifest.schema.columns]
-            return pd.DataFrame(resp.result.data_array, columns=cols)
-    except Exception:
-        pass
-    
-    local_path = os.path.join(os.path.dirname(__file__), "..", "data", "nfhs_health.csv")
-    if os.path.exists(local_path):
-        return pd.read_csv(local_path)
-    return pd.DataFrame()
+        return _load_databricks_table("nfhs_5_district_health_indicators")
+    except Exception as error:
+        _show_load_error("nfhs_5_district_health_indicators", error)
+
+    return _load_local_csv("nfhs_health.csv")
 
 
 @st.cache_data
 def load_pincode() -> pd.DataFrame:
     """Load India Post pincode directory."""
     try:
-        from databricks.sdk import WorkspaceClient
-        from databricks.sdk.service.sql import Disposition
-        w = WorkspaceClient()
-        warehouse_id = os.getenv("DATABRICKS_WAREHOUSE_ID", "7701ddcec8332cb1")
-        catalog = os.getenv("DATABRICKS_CATALOG", "databricks_virtue_foundation_dataset_dais_2026")
-        schema = os.getenv("DATABRICKS_SCHEMA", "virtue_foundation_dataset")
-        
-        resp = w.statement_execution.execute_statement(
-            statement=f"SELECT * FROM {catalog}.{schema}.india_post_pincode_directory",
-            warehouse_id=warehouse_id,
-            wait_timeout="50s"
-        )
-        if resp.result and resp.result.data_array:
-            cols = [c.name for c in resp.manifest.schema.columns]
-            return pd.DataFrame(resp.result.data_array, columns=cols)
-    except Exception:
-        pass
-    
-    local_path = os.path.join(os.path.dirname(__file__), "..", "data", "pincode_directory.csv")
-    if os.path.exists(local_path):
-        return pd.read_csv(local_path)
-    return pd.DataFrame()
+        return _load_databricks_table("india_post_pincode_directory")
+    except Exception as error:
+        _show_load_error("india_post_pincode_directory", error)
+
+    return _load_local_csv("pincode_directory.csv")
 
 
 # ─── Data Processing ─────────────────────────────────────────────────

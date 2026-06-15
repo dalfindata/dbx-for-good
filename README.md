@@ -58,9 +58,86 @@ streamlit run src/app.py
 
 ## Deploy to Databricks
 
+This project uses a Databricks Asset Bundle (DAB). `databricks.yml` is the
+declarative source of truth for the Databricks App, deploy targets, variables,
+and workspace resources. The Databricks CLI uses that file to validate, deploy,
+bind, and run the app repeatably from a laptop or CI/CD.
+
+Targets:
+
+- `dev` deploys `dev-medical-desert-planner`
+- `prod` deploys `medical-desert-planner`
+
+The separate dev app name avoids colliding with the existing production app.
+
+Authenticate first:
+
 ```bash
-databricks bundle deploy --target dev
+databricks auth login \
+  --host https://dbc-32a89911-6688.cloud.databricks.com \
+  --profile dbc-32a89911-6688
 ```
+
+Deploy locally:
+
+```bash
+PROFILE=dbc-32a89911-6688 \
+TARGET=dev \
+WAREHOUSE_ID=<sql-warehouse-id> \
+scripts/deploy_databricks_app.sh
+```
+
+The local deploy script always runs Python compilation and `mypy`. Install the
+typechecker before deploying:
+
+```bash
+python3 -m pip install mypy
+```
+
+Only bypass `mypy` for emergency deploys:
+
+```bash
+RUN_MYPY=0 scripts/deploy_databricks_app.sh
+```
+
+For production, set `TARGET=prod`. If the target app already exists, the script
+attempts to bind it to the bundle before deploying. After binding, the bundle
+manages that app and future deployments update it instead of creating a
+duplicate.
+
+### GitHub Actions Deployment
+
+The `Deploy Databricks App` workflow can be run manually from GitHub Actions.
+Configure these environment secrets for both `dev` and `prod` environments:
+
+- `DATABRICKS_HOST`
+- `DATABRICKS_TOKEN`
+- `DATABRICKS_WAREHOUSE_ID`
+
+Then run the workflow and choose the target environment.
+
+### Data Access
+
+The app service principal needs `USE CATALOG`, `USE SCHEMA`, and `SELECT` on
+the Unity Catalog data used by the app:
+
+- `databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.facilities`
+- `databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.nfhs_5_district_health_indicators`
+- `databricks_virtue_foundation_dataset_dais_2026.virtue_foundation_dataset.india_post_pincode_directory`
+
+The bundle does not declare these UC tables as app resources because doing so
+requires the deployer to have `MANAGE` on each table. If deployment succeeds but
+the app cannot load data, ask a catalog/table owner or workspace admin to grant
+the required Unity Catalog privileges to the Databricks App service principal.
+
+To print the app details and a grant template:
+
+```bash
+PROFILE=dbc-32a89911-6688 scripts/print_app_data_grants.sh
+```
+
+For the dev app, the grant principal is the service principal client ID:
+`fb4754d9-7dd1-4e21-a5d9-9bcf63068a05`.
 
 ## Team
 
