@@ -16,49 +16,45 @@ from typing import Optional
 
 # ─── LLM Client ──────────────────────────────────────────────────────
 
-def get_llm_client():
-    """Get LLM client - tries Databricks Foundation Models first, then OpenAI fallback."""
+def call_llm(system_prompt: str, user_prompt: str, max_tokens: int = 1500) -> str:
+    """Call LLM via Databricks Foundation Model endpoint.
+    
+    Uses WorkspaceClient's built-in auth (works in Databricks Apps with managed identity).
+    Falls back to OpenAI or mock mode for local dev.
+    """
+    # Method 1: Databricks SDK with raw HTTP (handles managed identity auth)
     try:
         from databricks.sdk import WorkspaceClient
+        import requests as _requests
         w = WorkspaceClient()
-        return ("databricks", w)
-    except Exception:
+        endpoint = os.getenv("DATABRICKS_LLM_ENDPOINT", "databricks-meta-llama-3-3-70b-instruct")
+        url = f"{w.config.host.rstrip('/')}/serving-endpoints/{endpoint}/invocations"
+        headers = w.config.authenticate()
+        headers["Content-Type"] = "application/json"
+        payload = {
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "max_tokens": max_tokens,
+            "temperature": 0.3
+        }
+        resp = _requests.post(url, json=payload, headers=headers, timeout=60)
+        resp.raise_for_status()
+        result = resp.json()
+        return result["choices"][0]["message"]["content"]
+    except ImportError:
         pass
+    except Exception as e:
+        return f"⚠️ LLM call failed ({e}). Showing data-only analysis below."
 
-    # Fallback: OpenAI-compatible endpoint (for local dev)
-    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("DATABRICKS_TOKEN")
+    # Method 2: OpenAI-compatible endpoint (for local dev)
+    api_key = os.getenv("OPENAI_API_KEY")
     if api_key:
-        return ("openai", api_key)
-
-    return ("mock", None)
-
-
-def call_llm(system_prompt: str, user_prompt: str, max_tokens: int = 1500) -> str:
-    """Call LLM via Databricks serving or fallback."""
-    client_type, client = get_llm_client()
-
-    if client_type == "databricks":
-        try:
-            # Use Databricks Foundation Model serving endpoint
-            endpoint = os.getenv("DATABRICKS_LLM_ENDPOINT", "databricks-meta-llama-3-3-70b-instruct")
-            response = client.serving_endpoints.query(
-                name=endpoint,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                max_tokens=max_tokens,
-                temperature=0.3
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            return f"⚠️ LLM call failed ({e}). Showing data-only analysis below."
-
-    elif client_type == "openai":
         try:
             import openai
             oai_client = openai.OpenAI(
-                api_key=client,
+                api_key=api_key,
                 base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
             )
             response = oai_client.chat.completions.create(
@@ -74,9 +70,8 @@ def call_llm(system_prompt: str, user_prompt: str, max_tokens: int = 1500) -> st
         except Exception as e:
             return f"⚠️ LLM call failed ({e}). Showing data-only analysis below."
 
-    else:
-        # Mock mode for local testing without API keys
-        return _mock_analysis(user_prompt)
+    # Mock mode
+    return _mock_analysis(user_prompt)
 
 
 def _mock_analysis(prompt: str) -> str:
@@ -95,24 +90,19 @@ def _mock_analysis(prompt: str) -> str:
 
 def analyze_district_facilities(facilities_df: pd.DataFrame, state: str, district: str = None) -> dict:
     """Gather facility evidence for a district/state for LLM context."""
-    # Prefer state_normalized column when available (aligns with NFHS state names)
-    if 'state_normalized' in facilities_df.columns:
-        state_facs = facilities_df[
-            facilities_df['state_normalized'].str.lower().str.strip() == state.lower().strip()
-        ]
-    else:
-        state_facs = facilities_df[
-            facilities_df['address_stateOrRegion'].str.lower().str.strip() == state.lower().strip()
-        ]
+    # Match against state_ut (parquet schema) or address_stateOrRegion (raw CSV)
+    state_col = 'state_ut' if 'state_ut' in facilities_df.columns else 'address_stateOrRegion'
+    state_facs = facilities_df[
+        facilities_df[state_col].astype(str).str.lower().str.strip() == state.lower().strip()
+    ]
 
     if district:
-        # Try city-level match as proxy for district
+        dist_col = 'district_name' if 'district_name' in facilities_df.columns else 'address_city'
         district_facs = state_facs[
-            state_facs['address_city'].str.lower().str.strip() == district.lower().strip()
+            state_facs[dist_col].astype(str).str.lower().str.strip() == district.lower().strip()
         ]
         if len(district_facs) == 0:
             district_facs = state_facs  # Fall back to state level
-
     else:
         district_facs = state_facs
 
@@ -124,43 +114,43 @@ def analyze_district_facilities(facilities_df: pd.DataFrame, state: str, distric
     # Capability summary
     capabilities = []
     for _, row in district_facs.head(20).iterrows():
-        cap = row.get('capabilities', '')
+        cap = row.get('capability', '') or row.get('capabilities', '')
         if pd.notna(cap) and str(cap).strip():
-            try:
-                cap_list = json.loads(str(cap))
-                if isinstance(cap_list, list):
-                    capabilities.extend(cap_list[:5])
-            except (json.JSONDecodeError, TypeError):
-                capabilities.append(str(cap)[:100])
+            capabilities.append(str(cap)[:150])
 
     # Specialty summary
     specialties = []
     for _, row in district_facs.head(20).iterrows():
         spec = row.get('specialties', '')
         if pd.notna(spec) and str(spec).strip():
-            try:
-                spec_list = json.loads(str(spec))
-                if isinstance(spec_list, list):
-                    specialties.extend(spec_list[:3])
-            except (json.JSONDecodeError, TypeError):
-                specialties.append(str(spec)[:50])
+            specialties.append(str(spec)[:100])
 
     # Type breakdown
-    type_counts = district_facs['facilityTypeId'].value_counts().to_dict()
+    type_col = 'facilityTypeId' if 'facilityTypeId' in district_facs.columns else 'type'
+    type_counts = district_facs[type_col].value_counts().to_dict() if type_col in district_facs.columns else {}
 
     # Capacity
-    caps = pd.to_numeric(district_facs['capacity'], errors='coerce').dropna()
-    total_capacity = int(caps.sum()) if len(caps) > 0 else None
+    if 'capacity' in district_facs.columns:
+        caps = pd.to_numeric(district_facs['capacity'], errors='coerce').dropna()
+        total_capacity = int(caps.sum()) if len(caps) > 0 else None
+    else:
+        caps = pd.Series(dtype=float)
+        total_capacity = None
+
+    # Maternal care facilities
+    n_obgyn = int(district_facs['is_obgyn'].sum()) if 'is_obgyn' in district_facs.columns else 0
 
     # Sample facility names for citations
-    sample_facilities = district_facs[['name', 'address_city', 'facilityTypeId']].head(5).to_dict('records')
+    name_col = 'name' if 'name' in district_facs.columns else district_facs.columns[0]
+    sample_facilities = district_facs[[name_col]].head(5).to_dict('records')
 
     return {
         "total": total,
         "type_breakdown": type_counts,
         "total_capacity": total_capacity,
-        "top_specialties": list(set(specialties))[:15],
-        "top_capabilities": list(set(capabilities))[:15],
+        "n_maternal": n_obgyn,
+        "top_specialties": list(set(specialties))[:10],
+        "top_capabilities": list(set(capabilities))[:10],
         "sample_facilities": sample_facilities,
         "has_capacity_data": f"{len(caps)}/{total} facilities report capacity"
     }
@@ -169,34 +159,46 @@ def analyze_district_facilities(facilities_df: pd.DataFrame, state: str, distric
 def identify_care_gaps(facilities_df: pd.DataFrame, nfhs_df: pd.DataFrame,
                        state: str, district: str = None) -> dict:
     """Identify gaps between health needs (NFHS) and available facilities."""
-    # Get NFHS data
+    # Get NFHS/gaps data — the parquet uses ind_* columns for indicators
     if district:
-        nfhs_row = nfhs_df[nfhs_df['district_name'].str.lower().str.strip() == district.lower().strip()]
+        nfhs_row = nfhs_df[nfhs_df['district_name'].astype(str).str.lower().str.strip() == district.lower().strip()]
     else:
-        nfhs_row = nfhs_df[nfhs_df['state_ut'].str.lower().str.strip() == state.lower().strip()]
+        nfhs_row = nfhs_df[nfhs_df['state_ut'].astype(str).str.lower().str.strip() == state.lower().strip()]
 
     # Get facility evidence
     fac_evidence = analyze_district_facilities(facilities_df, state, district)
 
     nfhs_indicators = {}
     if len(nfhs_row) > 0:
-        # Aggregate across all matching rows (e.g., multiple districts per state)
-        row = nfhs_row.mean(numeric_only=True) if len(nfhs_row) > 1 else nfhs_row.iloc[0]
-        nfhs_indicators = {
-            "institutional_birth_pct": pd.to_numeric(row.get('institutional_birth_5y_pct'), errors='coerce'),
-            "child_stunting_pct": pd.to_numeric(row.get('child_u5_who_are_stunted_height_for_age_18_pct'), errors='coerce'),
-            "insurance_pct": pd.to_numeric(row.get('hh_member_covered_health_insurance_pct'), errors='coerce'),
-            "anaemia_pct": pd.to_numeric(row.get('all_w15_49_who_are_anaemic_pct'), errors='coerce'),
-            "vaccination_pct": pd.to_numeric(row.get('child_12_23m_fully_vaccinated_based_on_information_from_eit_pct'), errors='coerce'),
-            "c_section_pct": pd.to_numeric(row.get('births_delivered_by_c_section_5y_pct'), errors='coerce'),
+        row = nfhs_row.iloc[0] if len(nfhs_row) == 1 else nfhs_row.mean(numeric_only=True)
+        # Try parquet schema (ind_*) first, then raw CSV column names
+        indicator_map = {
+            "institutional_birth_pct": ["ind_inst_birth", "institutional_birth_5y_pct"],
+            "child_stunting_pct": ["ind_stunting", "child_u5_who_are_stunted_height_for_age_18_pct"],
+            "insurance_pct": ["ind_insurance", "hh_member_covered_health_insurance_pct"],
+            "anaemia_pct": ["ind_women_anaemia", "all_w15_49_who_are_anaemic_pct"],
+            "vaccination_pct": ["ind_full_immun", "child_12_23m_fully_vaccinated_based_on_information_from_eit_pct"],
+            "maternal_care_pct": ["ind_anc4", "mothers_who_had_at_least_4_anc_visits_lb5y_pct"],
         }
-        # Remove NaN values
-        nfhs_indicators = {k: v for k, v in nfhs_indicators.items() if pd.notna(v)}
+        for key, cols in indicator_map.items():
+            for col in cols:
+                val = row.get(col) if hasattr(row, 'get') else row.get(col, None)
+                if val is not None:
+                    val = pd.to_numeric(val, errors='coerce')
+                    if pd.notna(val):
+                        nfhs_indicators[key] = float(val)
+                        break
+
+        # Also include gap scores if available (parquet schema)
+        for col in ['gap', 'maternal_gap', 'fac_per_100k', 'need_z', 'n_fac', 'pop']:
+            val = row.get(col) if hasattr(row, 'get') else None
+            if val is not None and pd.notna(val):
+                nfhs_indicators[col] = float(val)
 
     return {
         "facility_evidence": fac_evidence,
         "health_indicators": nfhs_indicators,
-        "data_completeness": f"{len(nfhs_indicators)}/6 health indicators available"
+        "data_completeness": f"{len(nfhs_indicators)} indicators available"
     }
 
 
@@ -307,26 +309,37 @@ def run_agent(query: str, facilities_df: pd.DataFrame, nfhs_df: pd.DataFrame,
 
 def get_quick_stats(facilities_df: pd.DataFrame, state: str) -> str:
     """Get quick data summary without LLM call (for instant feedback)."""
-    # Prefer state_normalized column when available (aligns with NFHS state names)
-    if 'state_normalized' in facilities_df.columns:
-        state_facs = facilities_df[
-            facilities_df['state_normalized'].str.lower().str.strip() == state.lower().strip()
-        ]
-    else:
-        state_facs = facilities_df[
-            facilities_df['address_stateOrRegion'].str.lower().str.strip() == state.lower().strip()
-        ]
+    state_col = 'state_ut' if 'state_ut' in facilities_df.columns else 'address_stateOrRegion'
+    state_facs = facilities_df[
+        facilities_df[state_col].astype(str).str.lower().str.strip() == state.lower().strip()
+    ]
     total = len(state_facs)
     if total == 0:
         return f"⚠️ No facilities found for state: {state}"
 
-    types = state_facs['facilityTypeId'].value_counts()
-    cities = state_facs['address_city'].nunique()
-    has_cap = state_facs['capacity'].notna().sum()
+    # Type breakdown
+    type_col = 'facilityTypeId' if 'facilityTypeId' in state_facs.columns else None
+    type_str = ""
+    if type_col and type_col in state_facs.columns:
+        types = state_facs[type_col].value_counts()
+        type_str = f"- Types: {', '.join(f'{k}: {v}' for k, v in types.head(3).items())}\n"
+
+    # District count
+    dist_col = 'district_name' if 'district_name' in state_facs.columns else 'address_city'
+    n_areas = state_facs[dist_col].nunique() if dist_col in state_facs.columns else 0
+
+    # Maternal capability
+    n_obgyn = int(state_facs['is_obgyn'].sum()) if 'is_obgyn' in state_facs.columns else "unknown"
+
+    # Capacity
+    if 'capacity' in state_facs.columns:
+        has_cap = state_facs['capacity'].notna().sum()
+        cap_str = f"- Capacity reported: {has_cap}/{total} ({has_cap/total*100:.0f}%)\n"
+    else:
+        cap_str = ""
 
     summary = f"""**Quick Stats for {state}:**
-- 🏥 {total} facilities across {cities} cities
-- Types: {', '.join(f'{k}: {v}' for k, v in types.head(3).items())}
-- Capacity reported: {has_cap}/{total} ({has_cap/total*100:.0f}%)
+- 🏥 {total} facilities across {n_areas} districts
+{type_str}{cap_str}- 👶 Maternal/obstetric-capable: {n_obgyn}
 """
     return summary

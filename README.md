@@ -2,70 +2,95 @@
 
 **Track 2: Where are the real, highest-risk gaps in care?**
 
-> A Databricks App that helps non-technical health planners identify and prioritize healthcare access gaps across India using data from 10,088 facilities, 706 district-level health indicators, and 160,721 geographic reference points.
+> 61 million people live in India's 40 worst healthcare deserts. This app tells you which ones,
+> why, and what to do about it — with every number traceable to its source.
 
 ## The Problem
 
-India's 1.4 billion people face uneven healthcare access. Some districts have abundant hospitals while others — "medical deserts" — have critically few facilities relative to health needs. Planners need tools to identify the highest-risk gaps, understand the evidence, and coordinate interventions.
+India's 1.4 billion people face uneven healthcare access. A naive facility count is misleading —
+a district of 3 million with 2 facilities is far worse off than a small district with 2. Planners
+need **per-capita**, **confidence-rated**, **evidence-cited** tools to prioritize.
 
-## Our Solution
+## How It Works
 
-The **Medical Desert Planner** combines three datasets to compute a **Medical Desert Risk Score** for each district:
+Each district gets a **care-gap score** = *health need* (NFHS-5 z-score) − *facility supply per 100k people*.
 
-| Dataset | Records | Purpose |
-|---------|---------|---------|
-| Healthcare Facilities (FDR) | 10,088 | Supply — what facilities exist |
+**What makes this trustworthy (not just another dashboard):**
+
+| # | Problem with naive approach | Our fix |
+|---|---|---|
+| 1 | Raw counts ignore population | Census-2011 → **facilities per 100k** |
+| 2 | Self-reported pincodes create false zeros | **Coordinate geocoding** (nearest post office) |
+| 3 | 88% private = coverage bias | Labelled as upper bounds, not absolute |
+| 4 | Need not matched to supply type | Maternal gaps vs **obstetric-capable** supply only |
+| 5 | Duplicates inflate counts | Deduped on entity key (cluster_id) |
+| 6 | NFHS small-sample values look solid | Reliability flags ⚠ carried through |
+| 7 | Post-2011 splits have no population | Flagged separately, never given fake numbers |
+
+## App Tabs
+
+| Tab | What it does |
+|-----|-------------|
+| 🗺️ **Map & Ranking** | Bubble map (size=population, color=gap score) + top-25 table |
+| 🔎 **District Detail** | NFHS indicators, per-facility cited evidence text, planner actions |
+| ⭐ **Shortlist** | Persisted decisions — status, notes, priority overrides, export CSV |
+| 📋 **Data Readiness** | Audit of the raw dataset: field coverage, column bleed, what was fixed |
+| 🤖 **AI Analyst** | Natural language Q&A powered by Databricks Foundation Models |
+
+## Datasets
+
+| Dataset | Records | Role |
+|---------|---------|------|
+| Healthcare Facilities (FDR) | 10,088 | Supply — what facilities exist (noisy, treat as claims) |
 | NFHS-5 Health Indicators | 706 districts | Demand — where health needs are highest |
-| India Post Pincode Directory | 160,721 | Geographic reference (planned for district-level joins) |
-
-### Key Features
-
-- **Desert Score** (0-100): Composite risk index from institutional birth rates, child stunting, insurance coverage, anaemia prevalence, and underweight children
-- **Interactive Map**: Visualize facility distribution and identify sparse regions
-- **District Deep Dive**: Click any district to see health indicators vs national averages
-- **AI Facility Analyst**: LLM-powered natural language Q&A about healthcare gaps with cited evidence
-- **Uncertainty Communication**: Data confidence levels (High/Medium/Low) shown alongside scores
-- **Persist Actions**: Planners can save notes, shortlist districts, export reports
+| India Post Pincode Directory | 160,721 | Geocoding bridge (coordinate → district assignment) |
+| Census 2011 | 640 districts | Population denominator for per-capita scoring |
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│           Streamlit UI (Medical Desert Planner)   │
-├─────────────────────────────────────────────────┤
-│  Desert Score Engine │ Map Renderer │ Persistence │
-├─────────────────────────────────────────────────┤
-│      Databricks SQL Warehouse (Serverless)       │
-├─────────────────────────────────────────────────┤
-│  Facilities  │  NFHS-5   │  Pincode Directory    │
-│  (Delta Sharing — Virtue Foundation FDR)         │
-└─────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────┐
+│         Streamlit UI (5 tabs)                           │
+├────────────────────────────────────────────────────────┤
+│  Gap Scoring Engine  │  AI Agent  │  Persistence       │
+├────────────────────────────────────────────────────────┤
+│  Pre-computed Parquet (district_gaps + citations)       │
+│  + Databricks Foundation Models (meta-llama-3.3-70b)   │
+│  + Lakebase / SQLite (planner actions)                 │
+└────────────────────────────────────────────────────────┘
 ```
 
 ## Databricks Tools Used
 
-1. **Lakebase** — Persists planner notes, shortlists, and review decisions
-2. **SQL Warehouse (Serverless)** — Queries 10K+ facility records on-demand
-3. **Unity Catalog + Delta Sharing** — Accesses shared FDR dataset securely
-4. **Databricks Apps** — Deploys as a managed Streamlit application
+1. **Databricks Apps** — Managed Streamlit deployment (Free Edition)
+2. **Foundation Models** — `meta-llama-3.3-70b-instruct` for AI Analyst
+3. **Lakebase** — Persists planner actions (Postgres, with SQLite fallback)
+4. **Unity Catalog + Delta Sharing** — Source dataset access
 
-## Local Development
+## Run Locally
 
 ```bash
 pip install -r requirements.txt
-streamlit run src/app.py
+cd src && streamlit run app.py
 ```
 
-## Deploy to Databricks
+## Deploy to Databricks Apps
+
+1. Sync this repo to your Databricks workspace
+2. Create an App pointing at `src/`; `app.yaml` sets the entrypoint
+3. (Optional) Attach Lakebase and set `PGHOST`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`
+
+## Rebuild Data (Optional)
 
 ```bash
-databricks bundle deploy --target dev
+# Requires source CSVs + census2011_district_population.csv in parent folder
+pip install scipy
+python src/prepare_app_data.py
 ```
 
 ## Team
 
-- **Team: DalFin Data**
-- DAIS Apps & Agents Hackathon for Good 2026
+**DalFin Data** — DAIS Apps & Agents Hackathon for Good 2026
 
 ## License
 

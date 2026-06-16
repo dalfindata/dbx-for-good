@@ -1,0 +1,134 @@
+{
+  "n_rows": 10088,
+  "coverage": [
+    {
+      "field": "description",
+      "role": "Evidence text (cite)",
+      "n": 10006,
+      "pct": 99.2
+    },
+    {
+      "field": "capability",
+      "role": "Evidence text (cite)",
+      "n": 9966,
+      "pct": 98.8
+    },
+    {
+      "field": "specialties",
+      "role": "Evidence text (cite)",
+      "n": 9972,
+      "pct": 98.9
+    },
+    {
+      "field": "procedure",
+      "role": "Evidence text (cite)",
+      "n": 9942,
+      "pct": 98.6
+    },
+    {
+      "field": "equipment",
+      "role": "Evidence text (cite)",
+      "n": 9863,
+      "pct": 97.8
+    },
+    {
+      "field": "latitude",
+      "role": "Geography",
+      "n": 9970,
+      "pct": 98.8
+    },
+    {
+      "field": "longitude",
+      "role": "Geography",
+      "n": 9970,
+      "pct": 98.8
+    },
+    {
+      "field": "operatorTypeId",
+      "role": "Ownership (bias)",
+      "n": 9327,
+      "pct": 92.5
+    },
+    {
+      "field": "facilityTypeId",
+      "role": "Facility-size proxy",
+      "n": 9962,
+      "pct": 98.8
+    },
+    {
+      "field": "capacity",
+      "role": "Capacity (weighting)",
+      "n": 2520,
+      "pct": 25.0
+    },
+    {
+      "field": "numberDoctors",
+      "role": "Capacity (weighting)",
+      "n": 3633,
+      "pct": 36.0
+    },
+    {
+      "field": "yearEstablished",
+      "role": "Capacity (weighting)",
+      "n": 4804,
+      "pct": 47.6
+    }
+  ],
+  "duplicates": {
+    "cluster_id": 129,
+    "unique_id": 11
+  },
+  "geocoding": {
+    "has_coords": 9970,
+    "has_coords_pct": 98.8,
+    "in_india": 9964,
+    "out_of_range": 6,
+    "no_coords": 118
+  },
+  "ownership": {
+    "government": 2,
+    "public": 469,
+    "private": 8842,
+    "missing_or_leaked": 775,
+    "private_pct": 87.6
+  },
+  "column_bleed": {
+    "n_bad": 14,
+    "examples": [
+      {
+        "unique_id": "Dr. Gita Khanna has established Ajanta H",
+        "name": " and accountability in equal measures and is providing assis",
+        "leaked_value": "26.885332107543945"
+      },
+      {
+        "unique_id": "> One of the greatest ways to feel that ",
+        "name": " must be in individual regions of the hospital or",
+        "leaked_value": "{\"coordinates\":[75.5718994140625,31.32871437072754],\"type\":\"Point\"}"
+      },
+      {
+        "unique_id": "  Currently",
+        "name": "(unnamed)",
+        "leaked_value": "00e60e06-25ed-43b3-a5fd-e39a0104729f"
+      },
+      {
+        "unique_id": "It activities of the centre focus on the",
+        "name": " the capital of Chhattisgarh.\"",
+        "leaked_value": "81.65721130371094"
+      },
+      {
+        "unique_id": "Under the ageis of Choithram Group",
+        "name": "(unnamed)",
+        "leaked_value": "08f3d9666086a7a90355f64c2d1f389b"
+      },
+      {
+        "unique_id": "\",null,null,null,\"[\"\"ophthalmology\"\"",
+        "name": "\"\"cataractAndAnteriorSegmentSurgery\"\"",
+        "leaked_value": "\"\"retinaAndVitreoretinalOphthalmology\"\""
+      }
+    ]
+  },
+  "specialty": {
+    "maternal_pct": 51.0,
+    "pediatric_pct": 56.5
+  }
+}

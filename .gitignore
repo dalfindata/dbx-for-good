@@ -1,9 +1,13 @@
-# Data files (too large for git)
+# Large raw data files (too large for git — 70MB+)
 data/*.csv
 data/*.json
 
 # Local dev artifacts
 planner.db
+planner_actions.db
 __pycache__/
 *.pyc
 pr_reviews.json
+
+# Pre-computed app data is committed (14.6MB total — needed at runtime)
+# src/app_data/*.parquet ← intentionally NOT ignored
