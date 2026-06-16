@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Local persistence state (SQLite fallback — recreated at runtime)
+planner_actions.db
+
+# Streamlit
+.streamlit/secrets.toml
